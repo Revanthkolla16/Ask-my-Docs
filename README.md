@@ -1,16 +1,16 @@
-<p align="center">
-  <h1 align="center">Ask My Docs</h1>
-  <p align="center">
+<div align="center">
+  <h1>Ask My Docs</h1>
+  <p>
     <strong>RAG with hybrid retrieval, citation-grounded generation, hallucination detection, and CI-gated evaluation.</strong>
   </p>
-  <p align="center">
+  <p>
     <a href="#features">Features</a> •
     <a href="#architecture">Architecture</a> •
     <a href="#quick-start">Quick Start</a> •
     <a href="#evaluation">Evaluation</a> •
     <a href="#tech-stack">Tech Stack</a>
   </p>
-</p>
+</div>
 
 ---
 
@@ -367,5 +367,3 @@ MIT
 - [LangChain](https://github.com/langchain-ai/langchain) — LLM orchestration
 - [ChromaDB](https://github.com/chroma-core/chroma) — vector store
 - [sentence-transformers](https://github.com/UKPLab/sentence-transformers) — embedding and reranking models
-#   A s k - m y - D o c s  
- 
