@@ -91,7 +91,7 @@ flowchart TD
 
     E --> F["Cross-Encoder Reranker\nms-marco-MiniLM\ntop-5 chunks"]
 
-    F --> G["LLM Generation · Groq\nStructured JSON output\n{ answer, citations\u005b\u005d }"]
+    F --> G["LLM Generation · Groq\nStructured JSON output\n{ answer, citations }"]
 
     G --> H["Hallucination Detector\nNLI model — claim ↔ context"]
 
@@ -119,36 +119,45 @@ flowchart TD
 ask-my-docs/
 ├── backend/
 │   ├── app/
+│   │   ├── __init__.py             # re-exports settings singleton
 │   │   ├── main.py                 # FastAPI application entry point
-│   │   ├── config.py               # Configuration management
-│   │   ├── models/                 # Pydantic schemas
-│   │   │   ├── request.py
-│   │   │   └── response.py
+│   │   ├── config.py               # Reads all config from .env (pydantic-settings)
+│   │   ├── models/
+│   │   │   ├── __init__.py         # re-exports all schema classes
+│   │   │   ├── request.py          # IngestRequest, QueryRequest
+│   │   │   └── response.py         # Citation, HallucinationFlag, QueryResponse, IngestResponse
 │   │   ├── ingestion/
+│   │   │   ├── __init__.py         # pipeline docstring: parse → chunk → index
 │   │   │   ├── parser.py           # PDF / Markdown / text parsing
 │   │   │   ├── chunker.py          # Chunking strategies
 │   │   │   └── indexer.py          # Embedding + ChromaDB + BM25 indexing
 │   │   ├── retrieval/
+│   │   │   ├── __init__.py         # pipeline docstring: dense → sparse → hybrid → rerank
 │   │   │   ├── dense.py            # Dense (embedding) retriever
 │   │   │   ├── sparse.py           # BM25 retriever
 │   │   │   ├── hybrid.py           # RRF fusion logic
 │   │   │   └── reranker.py         # Cross-encoder reranking
 │   │   ├── generation/
+│   │   │   ├── __init__.py         # pipeline docstring: prompts → generate → validate citations
 │   │   │   ├── generator.py        # LLM generation with structured output
 │   │   │   └── prompts.py          # Prompt templates
 │   │   ├── hallucination/
+│   │   │   ├── __init__.py         # pipeline docstring: split → NLI verify → flag
 │   │   │   └── detector.py         # Claim-level hallucination checks
 │   │   └── api/
+│   │       ├── __init__.py         # lists all routers and their endpoints
 │   │       ├── routes_query.py     # /query endpoint
 │   │       ├── routes_ingest.py    # /ingest endpoint
 │   │       └── routes_eval.py      # /eval endpoint
 │   ├── evaluation/
+│   │   ├── __init__.py             # lists evaluate / ablation / check_regression
 │   │   ├── golden_qa.json          # 100-sample benchmark dataset
 │   │   ├── evaluate.py             # RAGAS evaluation runner
 │   │   ├── ablation.py             # Ablation experiment runner
 │   │   └── baselines/
 │   │       └── baseline.json       # Last known-good metric scores
 │   ├── tests/
+│   │   ├── __init__.py             # lists what each test module covers
 │   │   ├── test_ingestion.py
 │   │   ├── test_retrieval.py
 │   │   ├── test_generation.py
@@ -182,7 +191,7 @@ ask-my-docs/
 ## Quick Start
 
 ### Prerequisites
-- Python 3.11+
+- Python 3.10+
 - Node.js 18+
 - Docker & Docker Compose (optional, for containerized setup)
 - [Groq API key](https://console.groq.com) (free tier, no credit card required)
@@ -311,7 +320,7 @@ The GitHub Actions workflow (`.github/workflows/eval-ci.yml`) runs automatically
 | Reranking | Cross-encoder (`ms-marco-MiniLM-L-6-v2`) |
 | Embeddings | `all-MiniLM-L6-v2` (sentence-transformers) |
 | Evaluation | RAGAS |
-| LLM | Groq (`llama-3.1-70b-versatile`) |
+| LLM | Groq (`llama-3.3-70b-versatile`) |
 | API Layer | FastAPI |
 | Frontend | React (Vite) |
 | CI/CD | GitHub Actions |
@@ -327,7 +336,7 @@ All configuration is managed via environment variables (`.env`) and YAML config 
 # .env.example
 LLM_PROVIDER=groq
 LLM_API_KEY=your-groq-api-key-here
-LLM_MODEL=llama-3.1-70b-versatile
+LLM_MODEL=llama-3.3-70b-versatile
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 CHROMA_PERSIST_DIR=./data/chroma
