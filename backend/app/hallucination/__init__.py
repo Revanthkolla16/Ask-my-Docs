@@ -11,3 +11,7 @@ NLI labels:
     neutral      — claim is neither supported nor contradicted (flagged if low confidence)
     contradiction — claim directly conflicts with the cited chunk (always flagged)
 """
+
+from .detector import HallucinationDetector, split_into_claims, verify_claim
+
+__all__ = ["HallucinationDetector", "split_into_claims", "verify_claim"]

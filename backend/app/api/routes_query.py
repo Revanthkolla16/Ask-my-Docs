@@ -8,6 +8,7 @@ Pipeline:
         → HybridRetriever.retrieve(query, top_k)
         → CrossEncoderReranker.rerank(query, candidates, top_n)
         → CitationGenerator.generate(query, context_chunks)
+        → HallucinationDetector.detect(answer, citations, context_chunks)
         → QueryResponse
 
 The endpoint is wired into FastAPI via ``app.main`` and exported from
@@ -23,6 +24,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.config import settings
 from app.generation import CitationGenerator, GenerationResult
+from app.hallucination import HallucinationDetector
 from app.models import QueryRequest, QueryResponse
 from app.retrieval import CrossEncoderReranker, HybridRetriever
 
@@ -46,6 +48,11 @@ _generator = CitationGenerator(
     model=settings.llm_model,
 )
 
+_detector = HallucinationDetector(
+    model_name=settings.nli_model,
+    threshold=settings.hallucination_threshold,
+)
+
 
 # ── Route ──────────────────────────────────────────────────────────────────────
 
@@ -67,7 +74,7 @@ async def query(request: QueryRequest) -> QueryResponse:
     1. Hybrid retrieval (dense + BM25, RRF fusion).
     2. Cross-encoder reranking.
     3. Citation-grounded generation via Groq (JSON mode).
-    4. (Optional) Hallucination detection — wired in Milestone 4.
+    4. Claim-level hallucination detection via NLI cross-encoder.
     """
     t_start = time.perf_counter()
 
@@ -131,17 +138,39 @@ async def query(request: QueryRequest) -> QueryResponse:
             detail=f"Generation failed: {exc}",
         ) from exc
 
-    # ── 4. Hallucination detection (Milestone 4 — placeholder) ───────────────
-    # hallucination_flags and confidence are populated in Milestone 4.
+    # ── 4. Hallucination detection ────────────────────────────────────────────
     hallucination_flags: list = []
     confidence: float | None = None
 
+    if request.detect_hallucinations and result.answer:
+        logger.info("Query pipeline: running hallucination detection …")
+        try:
+            hallucination_flags = _detector.detect(
+                answer=result.answer,
+                citations=result.citations,
+                context_chunks=reranked,
+            )
+            # Overall confidence = fraction of claims that are entailed
+            if hallucination_flags:
+                entailed = sum(
+                    1 for f in hallucination_flags if f.label == "entailment"
+                )
+                confidence = round(entailed / len(hallucination_flags), 4)
+        except Exception as exc:
+            logger.warning(
+                "Hallucination detection failed (%s) — returning empty flags.", exc
+            )
+
     total_ms = (time.perf_counter() - t_start) * 1000.0
 
+    flagged_count = sum(1 for f in hallucination_flags if f.flagged)
     logger.info(
-        "Query pipeline complete: latency=%.1f ms, citations=%d.",
+        "Query pipeline complete: latency=%.1f ms, citations=%d, "
+        "hallucination_flags=%d (flagged=%d).",
         total_ms,
         len(result.citations),
+        len(hallucination_flags),
+        flagged_count,
     )
 
     return QueryResponse(
