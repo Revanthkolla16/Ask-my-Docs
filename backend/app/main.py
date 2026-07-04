@@ -31,11 +31,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers (stubs — filled in later milestones) ──────────────────────────────
-# from app.api.routes_ingest import router as ingest_router
-# from app.api.routes_query import router as query_router
-# from app.api.routes_eval import router as eval_router
-# app.include_router(ingest_router, prefix="/ingest", tags=["Ingestion"])
+# ── Routers ────────────────────────────────────────────────────────────────────
+from app.api import ingest_router
+# from app.api import query_router   # Milestone 3
+# from app.api import eval_router     # Milestone 5
+
+app.include_router(ingest_router, prefix="/ingest", tags=["Ingestion"])
 # app.include_router(query_router, prefix="/query", tags=["Query"])
 # app.include_router(eval_router, prefix="/eval", tags=["Evaluation"])
 
