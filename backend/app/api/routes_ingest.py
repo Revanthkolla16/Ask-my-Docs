@@ -18,6 +18,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 
+
 from app.config import settings
 from app.ingestion import IndexManager, get_chunker, parse_document
 from app.models import IngestRequest, IngestResponse

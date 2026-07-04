@@ -9,8 +9,8 @@ Exports:
     QueryResponse   — full response from POST /query
     IngestResponse  — response from POST /ingest
 """
-from app.models.request import IngestRequest, QueryRequest
-from app.models.response import (
+from .request import IngestRequest, QueryRequest
+from .response import (
     Citation,
     HallucinationFlag,
     IngestResponse,
