@@ -32,12 +32,11 @@ app.add_middleware(
 )
 
 # ── Routers ────────────────────────────────────────────────────────────────────
-from app.api import ingest_router
-# from app.api import query_router   # Milestone 3
+from app.api import ingest_router, query_router
 # from app.api import eval_router     # Milestone 5
 
 app.include_router(ingest_router, prefix="/ingest", tags=["Ingestion"])
-# app.include_router(query_router, prefix="/query", tags=["Query"])
+app.include_router(query_router, prefix="/query", tags=["Query"])
 # app.include_router(eval_router, prefix="/eval", tags=["Evaluation"])
 
 

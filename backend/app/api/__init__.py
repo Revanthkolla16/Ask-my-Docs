@@ -7,5 +7,6 @@ Routers (included in app.main):
     routes_eval    → POST /eval/run, GET /eval/results, GET /eval/ablation/{experiment}
 """
 from .routes_ingest import router as ingest_router
+from .routes_query import router as query_router
 
-__all__ = ["ingest_router"]
+__all__ = ["ingest_router", "query_router"]
