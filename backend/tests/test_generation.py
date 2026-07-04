@@ -474,8 +474,4 @@ class TestQueryRoute:
         # top_k=7 should have been forwarded to the retriever
         assert 7 in call_args.args or call_args.kwargs.get("top_k") == 7
 
-    def test_hallucination_flags_empty_in_milestone_3(self, client):
-        """Hallucination detection is not yet active in Milestone 3."""
-        response = client.post("/query/", json={"query": "What is Python?"})
-        data = response.json()
-        assert data["hallucination_flags"] == []
+
