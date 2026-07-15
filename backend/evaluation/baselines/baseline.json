@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-07-15T00:00:00+00:00",
+  "note": "Placeholder baseline — run evaluation/evaluate.py and copy results here after first passing run.",
+  "config": {
+    "embedding_model": "all-MiniLM-L6-v2",
+    "llm_model": "llama-3.3-70b-versatile",
+    "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "retrieval_top_k": 20,
+    "rerank_top_n": 5,
+    "rrf_k": 60,
+    "num_questions": 100
+  },
+  "aggregate_scores": {
+    "faithfulness": 0.0,
+    "answer_relevancy": 0.0,
+    "context_precision": 0.0,
+    "context_recall": 0.0
+  }
+}
