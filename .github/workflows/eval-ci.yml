@@ -1,0 +1,203 @@
+# .github/workflows/eval-ci.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Ask My Docs — RAGAS Evaluation CI Pipeline
+#
+# Triggers on every push and pull_request to any branch.
+# Steps:
+#   1. Checkout code
+#   2. Set up Python 3.11
+#   3. Install backend dependencies
+#   4. Run RAGAS evaluation (limited to 10 questions for speed in CI)
+#   5. Run regression check against stored baseline
+#   6. Upload evaluation artifact
+#   7. On PRs: post a metric diff table as a PR comment
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: RAGAS Evaluation CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  evaluate:
+    name: Run RAGAS Evaluation & Regression Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Python setup ──────────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      # ── 3. Install dependencies ──────────────────────────────────────────────
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      # ── 4. Create .env for CI ────────────────────────────────────────────────
+      - name: Create .env from secrets
+        working-directory: .
+        run: |
+          cat > .env << 'EOF'
+          LLM_PROVIDER=groq
+          LLM_API_KEY=${{ secrets.LLM_API_KEY }}
+          LLM_MODEL=llama-3.3-70b-versatile
+          EMBEDDING_MODEL=all-MiniLM-L6-v2
+          RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+          NLI_MODEL=cross-encoder/nli-deberta-v3-base
+          CHROMA_PERSIST_DIR=./data/chroma
+          DEFAULT_CHUNKING=fixed
+          CHUNK_SIZE=512
+          CHUNK_OVERLAP=50
+          SEMANTIC_SIMILARITY_THRESHOLD=0.75
+          RETRIEVAL_TOP_K=20
+          RERANK_TOP_N=5
+          RRF_K=60
+          HALLUCINATION_THRESHOLD=0.7
+          EVAL_REGRESSION_THRESHOLD=0.02
+          EVAL_RESULTS_DIR=./evaluation/results
+          GOLDEN_QA_PATH=./evaluation/golden_qa.json
+          BASELINE_PATH=./evaluation/baselines/baseline.json
+          API_HOST=0.0.0.0
+          API_PORT=8000
+          CORS_ORIGINS=http://localhost:3000
+          EOF
+
+      # ── 5. Ingest corpus ─────────────────────────────────────────────────────
+      - name: Ingest seed corpus
+        run: |
+          python - << 'PYEOF'
+          import sys
+          sys.path.insert(0, ".")
+          from app.ingestion.parser import parse_document
+          from app.ingestion.chunker import get_chunker
+          from app.ingestion.indexer import IndexManager
+          from pathlib import Path
+
+          corpus_dir = Path("./data/corpus")
+          if not corpus_dir.exists() or not any(corpus_dir.iterdir()):
+              print("No corpus files found — skipping ingestion.")
+              sys.exit(0)
+
+          chunker = get_chunker(strategy="fixed", chunk_size=512, overlap=50)
+          manager = IndexManager(embedding_model="all-MiniLM-L6-v2", persist_dir="./data/chroma")
+          manager.clear()
+
+          all_chunks = []
+          for doc in corpus_dir.iterdir():
+              if doc.is_file():
+                  try:
+                      pages = parse_document(str(doc))
+                      chunks = chunker.chunk(pages)
+                      all_chunks.extend(chunks)
+                      print(f"Ingested {doc.name}: {len(chunks)} chunks")
+                  except Exception as e:
+                      print(f"Skipping {doc.name}: {e}")
+
+          if all_chunks:
+              manager.add_documents(all_chunks)
+              print(f"Total chunks indexed: {len(all_chunks)}")
+          PYEOF
+
+      # ── 6. Run evaluation (10 questions for CI speed) ────────────────────────
+      - name: Run RAGAS evaluation (CI subset — 10 questions)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python -m evaluation.evaluate \
+            --limit 10 \
+            --output evaluation/results/ci_eval_latest.json
+
+      # ── 7. Regression check ──────────────────────────────────────────────────
+      - name: Check regression against baseline
+        id: regression_check
+        run: |
+          python -m evaluation.check_regression \
+            --results evaluation/results/ci_eval_latest.json \
+            --baseline evaluation/baselines/baseline.json \
+            --threshold 0.02 \
+            --output-markdown evaluation/results/regression_summary.md \
+            --github-summary
+        # Allow workflow to continue so we can post the PR comment even on failure
+        continue-on-error: true
+
+      # ── 8. Append summary to GitHub Actions step summary ─────────────────────
+      - name: Write step summary
+        if: always()
+        run: |
+          if [ -f evaluation/results/regression_summary.md ]; then
+            cat evaluation/results/regression_summary.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # ── 9. Upload evaluation artifacts ───────────────────────────────────────
+      - name: Upload evaluation results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ragas-eval-results-${{ github.run_number }}
+          path: |
+            backend/evaluation/results/ci_eval_latest.json
+            backend/evaluation/results/regression_summary.md
+          retention-days: 30
+
+      # ── 10. Post PR comment with metric diff table ────────────────────────────
+      - name: Post metric diff table as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const summaryPath = 'backend/evaluation/results/regression_summary.md';
+
+            let body = '## RAGAS Evaluation — No summary generated.\n';
+            if (fs.existsSync(summaryPath)) {
+              body = fs.readFileSync(summaryPath, 'utf8');
+            }
+
+            // Find and update existing bot comment if it exists, else create new
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('RAGAS Regression Check')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      # ── 11. Fail job if regression was detected ───────────────────────────────
+      - name: Fail if regression detected
+        if: steps.regression_check.outcome == 'failure'
+        run: |
+          echo "Regression check failed — one or more RAGAS metrics dropped beyond threshold."
+          exit 1
