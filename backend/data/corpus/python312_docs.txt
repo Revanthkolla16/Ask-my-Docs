@@ -1,0 +1,342 @@
+Python 3.12 Language Reference and Standard Library Documentation
+================================================================
+
+Source: Python Software Foundation — https://docs.python.org/3.12/
+Version: CPython 3.12
+
+
+## Built-in Functions
+
+### open()
+
+open(file, mode='r', buffering=-1, encoding=None, errors=None, newline=None, closefd=True, opener=None)
+
+Open file and return a corresponding file object. If the file cannot be opened, an OSError is raised.
+
+The default encoding used by Python's open() function is platform-dependent. On most modern systems, including Linux and macOS, the default is UTF-8. On Windows it is determined by the current code page. It is strongly recommended to always specify the encoding explicitly when opening text files to avoid platform-specific behavior, for example: open('file.txt', encoding='utf-8').
+
+When mode is 'r' (the default), the file is opened for reading. When mode is 'w', the file is opened for writing, truncating the file first. Binary mode is selected with 'b'.
+
+
+## Virtual Environments
+
+### venv — Creation of virtual environments
+
+The venv module provides support for creating lightweight "virtual environments" with their own site directories, optionally isolated from system site directories.
+
+How to create a virtual environment in Python 3.12:
+
+    python -m venv <env_name>
+
+This command creates a directory with a self-contained Python installation, including its own pip. To activate the virtual environment on Windows:
+
+    <env_name>\Scripts\activate
+
+On Unix/macOS:
+
+    source <env_name>/bin/activate
+
+Python 3.12 includes the venv module in the standard library. Virtual environments are recommended for every project to avoid dependency conflicts.
+
+
+## Data Structures
+
+### Lists and Tuples
+
+Lists are mutable sequences, typically used to store collections of homogeneous items. A list is written as a comma-separated sequence of values enclosed in square brackets: [1, 2, 3].
+
+Tuples are immutable sequences, typically used to store collections of heterogeneous data. A tuple is written as a comma-separated sequence of values enclosed in parentheses: (1, 'hello', 3.14).
+
+Key differences between lists and tuples:
+- Lists are mutable: you can add, remove, and change elements after creation.
+- Tuples are immutable: once created, their elements cannot be changed.
+- Lists use square brackets []; tuples use parentheses ().
+- Tuples are slightly faster to access than lists due to immutability.
+- Tuples can be used as dictionary keys (because they are hashable); lists cannot.
+
+
+## Operators
+
+### The Walrus Operator :=
+
+PEP 572 introduced the assignment expression operator, commonly called the "walrus operator" (:=), in Python 3.8. In Python 3.12 this feature is fully mature.
+
+The walrus operator := allows you to assign a value to a variable as part of an expression. This is particularly useful in while loops and comprehensions where you want to both test and assign a value in a single step.
+
+Example:
+
+    while chunk := file.read(8192):
+        process(chunk)
+
+Without the walrus operator, you would need two lines: one to assign and one to test.
+
+    # Also useful in list comprehensions
+    results = [y for x in data if (y := transform(x)) is not None]
+
+
+## Functions
+
+### Generators
+
+A Python generator is a function that uses the yield keyword to produce a sequence of values lazily, one at a time, rather than computing them all at once and returning them as a list.
+
+Unlike regular functions that return once (and lose all local state on return), generators can be resumed from where they left off. When a generator function is called, it returns a generator iterator object. Calling next() on the iterator resumes execution until the next yield statement.
+
+    def count_up(n):
+        i = 0
+        while i < n:
+            yield i
+            i += 1
+
+    gen = count_up(3)
+    print(next(gen))  # 0
+    print(next(gen))  # 1
+    print(next(gen))  # 2
+
+Generator expressions are a concise syntax: (x*x for x in range(10)).
+
+Generators are memory-efficient because they produce items one at a time rather than loading all items into memory.
+
+
+### Decorators
+
+Python decorators are functions that wrap another function to extend or modify its behavior without permanently modifying it. They use the @decorator_name syntax placed before the function definition.
+
+A decorator is defined as a function that takes another function as argument and returns a modified (wrapped) function:
+
+    def my_decorator(func):
+        def wrapper(*args, **kwargs):
+            print("Before call")
+            result = func(*args, **kwargs)
+            print("After call")
+            return result
+        return wrapper
+
+    @my_decorator
+    def say_hello():
+        print("Hello!")
+
+    # Equivalent to: say_hello = my_decorator(say_hello)
+
+Python 3.12 added PEP 695 (type parameter syntax) and PEP 698 (override decorator). Common built-in decorators include @staticmethod, @classmethod, and @property.
+
+
+## Classes
+
+### __slots__
+
+When you define __slots__ in a class, you explicitly declare which instance attributes the class is allowed to have. By default, Python stores instance attributes in a per-instance __dict__ dictionary.
+
+The purpose of __slots__:
+- Saves memory by preventing the creation of a per-instance __dict__.
+- Speeds up attribute access because slots are stored as a compact array rather than a dictionary.
+- Prevents creation of attributes not listed in __slots__ (which can help catch typos).
+
+    class Point:
+        __slots__ = ('x', 'y')
+        def __init__(self, x, y):
+            self.x = x
+            self.y = y
+
+    p = Point(1, 2)
+    # p.z = 3  # AttributeError — z not in __slots__
+
+
+### Dataclasses
+
+Python dataclasses were introduced in Python 3.7 (PEP 557) and are available in Python 3.12. The @dataclass decorator automatically generates boilerplate methods like __init__, __repr__, __eq__, and optionally __lt__, __hash__ for classes that primarily store data.
+
+Without dataclasses you must manually write these methods. With @dataclass:
+
+    from dataclasses import dataclass
+
+    @dataclass
+    class Employee:
+        name: str
+        department: str
+        salary: float = 50000.0
+
+    emp = Employee("Alice", "Engineering", 90000.0)
+    print(emp)  # Employee(name='Alice', department='Engineering', salary=90000.0)
+
+Dataclasses reduce repetitive code and make data-holding classes more readable. The field() function provides additional options like default_factory and compare flags.
+
+
+## Concurrency
+
+### The Global Interpreter Lock (GIL)
+
+The GIL (Global Interpreter Lock) is a mutex that protects access to Python objects, preventing multiple native threads from executing Python bytecodes simultaneously in a single CPython process.
+
+How the GIL affects multithreading:
+- Python threads cannot achieve true parallelism for CPU-bound tasks because only one thread can execute Python code at a time.
+- For I/O-bound tasks (network, disk, sleep), threading still provides benefits because the GIL is released during I/O operations, allowing other threads to run.
+- CPU-bound parallel workloads should use the multiprocessing module, which spawns separate processes each with their own GIL.
+
+Python 3.12 introduced per-interpreter GIL (PEP 684), allowing subinterpreters to have their own GIL and run in parallel on multiple CPU cores. This is an experimental feature via the interpreters module.
+
+Note: Python 3.13 is expected to offer a free-threaded (no-GIL) build as an option.
+
+
+### asyncio — Asynchronous I/O
+
+Python's asyncio module provides infrastructure for writing single-threaded concurrent code using coroutines, multiplexing I/O access over sockets and other resources, running network clients and servers, and other related primitives.
+
+The asyncio event loop is a single-threaded mechanism that schedules and executes coroutines. It runs in a single thread and uses cooperative multitasking: coroutines yield control when they await I/O operations (using the await keyword), allowing other coroutines to run in the meantime.
+
+    import asyncio
+
+    async def fetch_data():
+        await asyncio.sleep(1)  # yields control; other coroutines can run
+        return "data"
+
+    async def main():
+        result = await fetch_data()
+        print(result)
+
+    asyncio.run(main())
+
+The event loop schedules callbacks, handles I/O events, runs subprocesses, and manages timers. In Python 3.12, asyncio gained improved performance and several bug fixes.
+
+Key concepts:
+- coroutine: a function defined with async def
+- Task: schedules a coroutine to run concurrently
+- await: suspends the current coroutine and yields control to the event loop
+- asyncio.gather(): run multiple coroutines concurrently
+
+
+## Type Hints and Typing
+
+### Type Annotations
+
+Python 3.12 (PEP 695) introduces type parameter syntax for generics:
+
+    def first[T](lst: list[T]) -> T:
+        return lst[0]
+
+    class Stack[T]:
+        def push(self, item: T) -> None: ...
+        def pop(self) -> T: ...
+
+    type Vector = list[float]  # type alias syntax
+
+Python 3.12 also improves TypeVarTuple and ParamSpec.
+
+
+## Context Managers
+
+### The with Statement
+
+Context managers are objects that define setup and teardown behavior using __enter__ and __exit__ methods (or using @contextmanager decorator from contextlib).
+
+    with open('file.txt', encoding='utf-8') as f:
+        data = f.read()
+    # File is automatically closed after the with block, even if an exception occurs.
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def managed_resource():
+        resource = acquire()
+        try:
+            yield resource
+        finally:
+            release(resource)
+
+
+## Exception Handling
+
+### Exception Groups (Python 3.11+)
+
+Python 3.11 introduced ExceptionGroup and BaseExceptionGroup for grouping multiple exceptions. The except* syntax handles exception groups:
+
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(coro1())
+            tg.create_task(coro2())
+    except* ValueError as eg:
+        for exc in eg.exceptions:
+            handle_value_error(exc)
+
+
+## Standard Library Highlights
+
+### pathlib — Object-Oriented Filesystem Paths
+
+    from pathlib import Path
+
+    p = Path('/usr/local/lib')
+    print(p / 'python3.12')   # /usr/local/lib/python3.12
+    print(p.is_dir())          # True
+    print(list(p.glob('*.py')))
+
+### collections — Container Data Types
+
+- namedtuple: tuple subclass with named fields
+- deque: thread-safe double-ended queue
+- Counter: dict subclass for counting hashable objects
+- defaultdict: dict subclass with a default factory
+- OrderedDict: dict subclass that remembers insertion order
+
+### itertools — Iterator Utilities
+
+    import itertools
+
+    list(itertools.chain([1,2], [3,4]))       # [1, 2, 3, 4]
+    list(itertools.combinations('ABC', 2))   # [('A','B'), ('A','C'), ('B','C')]
+    list(itertools.islice(range(1000), 5))   # [0, 1, 2, 3, 4]
+
+### functools — Higher-Order Functions
+
+    from functools import lru_cache, partial, reduce
+
+    @lru_cache(maxsize=128)
+    def fib(n):
+        return n if n < 2 else fib(n-1) + fib(n-2)
+
+    double = partial(lambda x, factor: x * factor, factor=2)
+
+
+## Memory Management and Performance
+
+### Memory Model
+
+Python uses reference counting combined with a cyclic garbage collector. Each object has a reference count; when it reaches zero, the memory is freed immediately.
+
+The gc module provides access to the cyclic garbage collector, which handles reference cycles (e.g., two objects referring to each other).
+
+### Profiling
+
+The cProfile module provides deterministic profiling:
+
+    python -m cProfile -s cumulative my_script.py
+
+The tracemalloc module (Python 3.4+) traces memory allocations:
+
+    import tracemalloc
+    tracemalloc.start()
+    # ... code ...
+    snapshot = tracemalloc.take_snapshot()
+    top_stats = snapshot.statistics('lineno')
+
+
+## New Features in Python 3.12
+
+- PEP 695: Type Parameter Syntax — cleaner generics
+- PEP 698: Override decorator for static type checkers
+- PEP 684: Per-Interpreter GIL
+- PEP 669: Low-impact monitoring for CPython (sys.monitoring)
+- Improved error messages
+- Performance improvements: 5% faster than Python 3.11 on average
+- distutils fully removed (was deprecated since 3.10)
+- Improved pathlib performance
+
+
+## Unanswerable Questions Policy
+
+Some questions cannot be answered from the provided documentation. For example:
+- Questions about future Python versions not yet released
+- Questions about third-party libraries not covered in this document
+- Highly speculative questions about Python internals not documented
+
+In such cases, the system should respond: "I don't know based on the provided context."

@@ -1,0 +1,165 @@
+BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding
+=================================================================================
+
+Authors: Jacob Devlin, Ming-Wei Chang, Kenton Lee, Kristina Toutanova
+Published: 2018 — arXiv:1810.04805
+Venue: NAACL-HLT 2019
+
+
+## Abstract
+
+We introduce a new language representation model called BERT, which stands for Bidirectional Encoder Representations from Transformers. Unlike recent language representation models, BERT is designed to pre-train deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers. As a result, the pre-trained BERT model can be fine-tuned with just one additional output layer to create state-of-the-art models for a wide range of tasks, such as question answering and language inference, without substantial task-specific architecture modifications.
+
+BERT is conceptually simple and empirically powerful. It obtains new state-of-the-art results on eleven natural language processing tasks.
+
+
+## 1. Introduction
+
+Language model pre-training has been shown to be effective for improving many natural language processing tasks. Pre-trained language representations can be applied to downstream tasks in two strategies:
+
+1. **Feature-based**: Uses the pre-trained representations as additional features (e.g., ELMo)
+2. **Fine-tuning**: Introduces minimal task-specific parameters and fine-tunes all pre-trained parameters on the downstream task (e.g., GPT)
+
+The two approaches share the same objective function during pre-training, where they use unidirectional language models to learn general language representations.
+
+We argue that current techniques severely restrict the power of the pre-trained representations, especially for fine-tuning approaches. The major limitation is that standard language models are unidirectional, which limits the choice of architectures that can be used during pre-training.
+
+BERT alleviates the previously mentioned unidirectionality constraint by using a "masked language model" (MLM) pre-training objective, inspired by the Cloze task. The masked language model randomly masks some of the tokens from the input, and the objective is to predict the original vocabulary id of the masked word based only on its context. Unlike left-to-right language model pre-training, the MLM objective enables the representation to fuse the left and the right context, which allows us to pre-train a deep bidirectional Transformer.
+
+
+## 2. BERT vs. GPT Architecture Differences
+
+The key difference between BERT and GPT:
+
+- **BERT** uses a bidirectional encoder that attends to all tokens simultaneously (both left and right context). This makes it better for understanding tasks such as classification, NER, and question answering.
+- **GPT (Generative Pre-trained Transformer)** uses a unidirectional (left-to-right) decoder for autoregressive text generation. It only attends to previous tokens, making it better for text generation tasks.
+
+BERT's bidirectionality is its most important feature. Because BERT sees the entire sequence at once, it can produce richer contextual embeddings. GPT's unidirectionality means it predicts the next token given all previous tokens, which is essential for generation but limits understanding of future context.
+
+
+## 3. Model Architecture
+
+BERT's model architecture is a multi-layer bidirectional Transformer encoder.
+
+Two model sizes:
+- **BERT_BASE**: L=12 layers, H=768 hidden size, A=12 attention heads, 110M parameters
+- **BERT_LARGE**: L=24 layers, H=1024 hidden size, A=16 attention heads, 340M parameters
+
+BERT_BASE was chosen to have the same model size as OpenAI GPT for comparison purposes.
+
+### Input Representation
+
+The input representation can unambiguously represent both a single sentence and a pair of sentences (for tasks like question answering) in one token sequence.
+
+- **[CLS] token**: special classification token at the beginning of every sequence; its final hidden state is used for classification tasks.
+- **[SEP] token**: separates sentence pairs.
+- **Token embeddings + Segment embeddings + Position embeddings** are summed to form the final input representation.
+
+Unlike the Transformer's sinusoidal positional encoding, BERT uses learned positional embeddings.
+
+
+## 4. Pre-Training BERT
+
+### 4.1 Masked Language Model (MLM)
+
+To train a deep bidirectional representation, we randomly mask some percentage of the input tokens (15%), and predict those masked tokens. This is called a "Masked Language Model" (MLM).
+
+The masking procedure:
+- 80% of the time: replace the word with the [MASK] token
+- 10% of the time: replace the word with a random word
+- 10% of the time: keep the word unchanged
+
+This prevents the model from simply remembering which tokens were masked, since MASK tokens do not appear during fine-tuning.
+
+### 4.2 Next Sentence Prediction (NSP)
+
+Many important downstream tasks such as Question Answering and Natural Language Inference are based on understanding the relationship between two sentences.
+
+To train a model that understands sentence relationships, we pre-train for a binarized next sentence prediction task:
+- 50% of the time the second sentence follows the first (IsNext)
+- 50% of the time it is a random sentence from the corpus (NotNext)
+
+NSP was later shown by subsequent research (RoBERTa, etc.) to have minimal impact on most tasks.
+
+### 4.3 Pre-Training Data
+
+BERT is pre-trained on:
+- BooksCorpus (800M words)
+- English Wikipedia (2,500M words, text passages only)
+
+
+## 5. Fine-Tuning BERT
+
+BERT can be fine-tuned on a wide variety of tasks with minimal architecture modifications:
+
+- **Single sentence classification**: Add a classification layer on [CLS] token
+- **Sentence pair classification**: Feed both sentences; classify using [CLS] token
+- **Question answering**: Fine-tune to predict the start and end positions of the answer span
+- **Named Entity Recognition (NER)**: Apply classification layer to each token
+
+Fine-tuning is typically fast (a few hours on a GPU) because the model has already learned general language representations during pre-training. This is an example of transfer learning: taking a model pre-trained on a large dataset and fine-tuning it on a smaller, task-specific dataset.
+
+Transfer learning in deep learning involves taking a model pre-trained on a large dataset and fine-tuning it on a smaller, task-specific dataset. This leverages learned representations, reducing training time and data requirements.
+
+
+## 6. Experiments and Results
+
+BERT achieves state-of-the-art results on 11 NLP benchmarks including:
+
+- **GLUE**: 80.5% overall score (7.7% absolute improvement)
+- **MultiNLI**: 86.7% accuracy
+- **SQuAD v1.1**: 93.2 F1 (1.5% improvement over previous SoTA)
+- **SQuAD v2.0**: 83.1 F1
+- **Named Entity Recognition (CoNLL-2003)**: 92.8% F1
+
+
+## 7. Ablation Studies
+
+### Effect of Pre-Training Tasks
+
+Removing NSP: Hurts performance on QNLI, MNLI, and SQuAD.
+Removing MLM (using left-to-right LM instead): Large degradation, especially on span-level tasks.
+Using bidirectional LM without MLM objective: Worse than BERT.
+
+This demonstrates that both deep bidirectionality and the MLM objective are crucial for BERT's performance.
+
+### Effect of Model Size
+
+Larger models continually improve accuracy, even on small-scale tasks. This supports the hypothesis that large models learn richer representations that transfer better.
+
+
+## 8. Conclusion
+
+BERT is a new language representation model that advances the state of the art for a broad set of NLP tasks. A key insight is that bidirectionality is critical: models that can attend to both left and right context simultaneously learn much richer representations than unidirectional models.
+
+The BERT approach demonstrates that unsupervised pre-training is an integral part of many language understanding systems.
+
+
+## Key Concepts from this Paper
+
+- **Transfer learning**: pre-training on large data → fine-tuning on small task-specific data
+- **Bidirectional attention**: attending to all tokens in both directions simultaneously
+- **Masked Language Model (MLM)**: predict randomly masked tokens using surrounding context
+- **Next Sentence Prediction (NSP)**: predict whether two sentences follow each other
+- **Fine-tuning**: adding a task-specific output layer and training on labeled data
+- **[CLS] token**: used as aggregate representation for classification tasks
+- **[SEP] token**: separates two sentences in a pair
+- **Contextual embeddings**: the same word gets different representations depending on its context
+
+
+## Related Work and Historical Context
+
+### ELMo (Embeddings from Language Models)
+Pre-BERT approach using bidirectional LSTM language models. The representations are feature-based (concatenated to task-specific models) rather than fine-tuned.
+
+### GPT (Generative Pre-training)
+Uses a left-to-right Transformer. Fine-tuning approach. BERT extends this to bidirectional context.
+
+### RoBERTa (2019)
+Robustly optimized BERT approach: removes NSP, trains longer with more data, uses larger batches. Significantly improves on BERT.
+
+### ALBERT (2019)
+A Lite BERT using parameter sharing and factorized embedding parameterization to reduce model size.
+
+### DistilBERT (2019)
+Smaller, faster, cheaper BERT using knowledge distillation. Retains 97% of BERT's language understanding.

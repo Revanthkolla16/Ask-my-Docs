@@ -1,0 +1,143 @@
+Attention Is All You Need
+=========================
+
+Authors: Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Łukasz Kaiser, Illia Polosukhin
+Published: 2017 — arXiv:1706.03762
+Venue: Advances in Neural Information Processing Systems (NeurIPS 2017)
+
+
+## Abstract
+
+The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best-performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train.
+
+
+## 1. Introduction
+
+Recurrent neural networks, long short-term memory (LSTM), and gated recurrent neural networks in particular, have been firmly established as state-of-the-art approaches in sequence modeling and transduction problems such as language modeling and machine translation.
+
+The attention mechanism has become an integral part of sequence modeling, allowing modeling of dependencies without regard to their distance in the input or output sequences. In this work we propose the Transformer, a model architecture that eschews recurrence and instead relies entirely on attention.
+
+
+## 2. Background
+
+Sequential computation is a fundamental constraint of RNNs. The number of operations required to relate signals from two arbitrary input or output positions grows in the distance between positions. In the Transformer, this is reduced to a constant number of operations.
+
+Self-attention (also called intra-attention) is an attention mechanism relating different positions of a single sequence in order to compute a representation of the sequence.
+
+
+## 3. Model Architecture
+
+### 3.1 Encoder and Decoder Stacks
+
+The Transformer follows an encoder-decoder structure. The encoder maps an input sequence of symbol representations to a sequence of continuous representations. Given z, the decoder then generates an output sequence of symbols one element at a time.
+
+The encoder consists of N = 6 identical layers. Each layer has two sub-layers:
+1. A multi-head self-attention mechanism
+2. A simple, position-wise fully connected feed-forward network
+
+A residual connection is employed around each sub-layer, followed by layer normalization.
+
+
+### 3.2 Attention
+
+An attention function can be described as mapping a query and a set of key-value pairs to an output. The output is computed as a weighted sum of the values, where the weight assigned to each value is computed by a compatibility function of the query with the corresponding key.
+
+#### Scaled Dot-Product Attention
+
+The input consists of queries and keys of dimension d_k, and values of dimension d_v. We compute the dot products of the query with all keys, divide each by sqrt(d_k), and apply a softmax function to obtain the weights on the values:
+
+    Attention(Q, K, V) = softmax(Q * K^T / sqrt(d_k)) * V
+
+We divide by sqrt(d_k) to counteract the effect of large dot products, which push the softmax into regions where it has extremely small gradients.
+
+#### Multi-Head Attention
+
+Instead of performing a single attention function with d_model-dimensional keys, values, and queries, it is beneficial to linearly project the queries, keys, and values h times with different learned projections, then perform attention in parallel, and concatenate the outputs.
+
+    MultiHead(Q, K, V) = Concat(head_1, ..., head_h) * W_O
+    where head_i = Attention(Q * W_i_Q, K * W_i_K, V * W_i_V)
+
+Multi-head attention allows the model to jointly attend to information from different representation subspaces at different positions.
+
+#### Self-Attention, Cross-Attention, and Masked Attention
+
+In the encoder, self-attention layers allow each position to attend to all positions in the previous layer of the encoder. In the decoder, each position can attend to all positions in the decoder up to and including that position (masked to prevent leftward information flow — autoregressive property).
+
+Cross-attention in the decoder allows each decoder position to attend to all positions in the input sequence encoder output.
+
+
+### 3.3 Position-wise Feed-Forward Networks
+
+In addition to attention sub-layers, each layer of the encoder and decoder contains a fully connected feed-forward network, applied to each position separately and identically:
+
+    FFN(x) = max(0, x * W_1 + b_1) * W_2 + b_2
+
+This consists of two linear transformations with a ReLU activation in between.
+
+
+### 3.4 Positional Encoding
+
+Since the Transformer contains no recurrence and no convolution, in order for the model to make use of the order of the sequence, we must inject information about the relative or absolute position of the tokens in the sequence. To this end, we add "positional encodings" to the input embeddings at the bottoms of the encoder and decoder stacks.
+
+Positional encoding is added to the token embeddings in transformers to provide information about the position of each token in the sequence, since the attention mechanism itself is permutation-invariant and has no inherent notion of order.
+
+We use sine and cosine functions of different frequencies:
+
+    PE(pos, 2i)   = sin(pos / 10000^(2i / d_model))
+    PE(pos, 2i+1) = cos(pos / 10000^(2i / d_model))
+
+where pos is the position and i is the dimension. We chose this function because it allows the model to easily learn to attend by relative positions.
+
+Learned positional embeddings are an alternative that produces nearly identical results.
+
+
+## 4. Why Self-Attention
+
+We compare self-attention to recurrent and convolutional layers on three criteria:
+1. Total computational complexity per layer
+2. Amount of computation that can be parallelized
+3. Path length between long-range dependencies in the network
+
+Self-attention connects all positions with a constant number of sequentially executed operations. Recurrent layers require O(n) sequential operations. A single convolutional layer with kernel width k < n does not connect all pairs of input and output positions.
+
+
+## 5. Training
+
+### 5.1 Optimizer
+
+We used the Adam optimizer with beta_1 = 0.9, beta_2 = 0.98, epsilon = 10^-9. We varied the learning rate according to the formula:
+
+    lr = d_model^(-0.5) * min(step^(-0.5), step * warmup_steps^(-1.5))
+
+This increases the learning rate linearly for the first warmup_steps steps, then decreases it proportionally to the inverse square root of the step number.
+
+
+### 5.2 Regularization
+
+We applied residual dropout to the output of each sub-layer, before it is added to the sub-layer input and normalized. We use dropout rate P_drop = 0.1.
+
+Label smoothing: We employed label smoothing of epsilon_ls = 0.1. This hurts perplexity but improves accuracy and BLEU score.
+
+
+## 6. Results
+
+On the WMT 2014 English-to-German translation task, the big Transformer model achieves a BLEU score of 28.4, outperforming the best previously reported models (including ensembles) by more than 2.0 BLEU, establishing a new state-of-the-art.
+
+On the WMT 2014 English-to-French translation task, the big Transformer model achieves a BLEU score of 41.0, outperforming all of the previously published single models at less than 1/4 the training cost of the previous state-of-the-art model.
+
+
+## 7. Conclusion
+
+In this work, we presented the Transformer, the first sequence transduction model based entirely on attention, replacing the recurrent layers most commonly used in encoder-decoder architectures with multi-headed self-attention.
+
+For translation tasks, the Transformer can be trained significantly faster than architectures based on recurrent or convolutional layers. We achieved new state-of-the-art on both WMT 2014 English-to-German and English-to-French translation tasks.
+
+
+## Key Concepts Summary
+
+- **Attention mechanism**: allows models to weigh the importance of different input tokens when producing each output token. Self-attention computes queries, keys, and values from the same input sequence, enabling the model to capture long-range dependencies.
+- **Multi-head attention**: runs multiple attention heads in parallel, capturing different types of relationships.
+- **Positional encoding**: added to embeddings to give the model position information, since attention is order-agnostic.
+- **Feed-forward network**: applied independently at each position after attention.
+- **Residual connections**: help gradients flow through deep networks.
+- **Layer normalization**: stabilizes training.
