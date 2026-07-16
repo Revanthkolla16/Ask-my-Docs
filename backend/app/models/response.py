@@ -50,3 +50,27 @@ class IngestResponse(BaseModel):
     chunks_created: int = Field(..., description="Number of chunks created from the document")
     chunking_strategy: str = Field(..., description="Chunking strategy that was used")
     message: str = Field(default="Document ingested successfully")
+
+
+class EvalRunSummary(BaseModel):
+    """Summary of a single evaluation run stored in results/."""
+    filename: str = Field(..., description="Result file name")
+    timestamp: str = Field(..., description="ISO-8601 timestamp of the run")
+    num_questions: int = Field(..., description="Number of questions evaluated")
+    faithfulness: Optional[float] = Field(default=None, description="RAGAS Faithfulness score")
+    answer_relevancy: Optional[float] = Field(default=None, description="RAGAS Answer Relevancy score")
+    context_precision: Optional[float] = Field(default=None, description="RAGAS Context Precision score")
+    context_recall: Optional[float] = Field(default=None, description="RAGAS Context Recall score")
+
+
+class EvalResponse(BaseModel):
+    """Full response returned by POST /eval/run."""
+    timestamp: str = Field(..., description="ISO-8601 timestamp of this evaluation run")
+    elapsed_seconds: float = Field(..., description="Total wall-clock time for the evaluation run")
+    num_questions: int = Field(..., description="Number of questions evaluated")
+    faithfulness: Optional[float] = Field(default=None, description="RAGAS Faithfulness score (0–1)")
+    answer_relevancy: Optional[float] = Field(default=None, description="RAGAS Answer Relevancy score (0–1)")
+    context_precision: Optional[float] = Field(default=None, description="RAGAS Context Precision score (0–1)")
+    context_recall: Optional[float] = Field(default=None, description="RAGAS Context Recall score (0–1)")
+    output_path: str = Field(..., description="Path to the saved result JSON file")
+    config: dict = Field(default_factory=dict, description="Pipeline configuration used for this run")

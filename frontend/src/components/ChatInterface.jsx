@@ -94,6 +94,29 @@ export default function ChatInterface() {
           <div className="empty-icon"><MessageSquare size={32} /></div>
           <h2>Ask <span className="gradient-text">My Docs</span></h2>
           <p>Upload documents in the sidebar, then ask anything. Every answer is grounded in your documents with inline citations.</p>
+          <div style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '10px',
+            background: 'rgba(255, 180, 0, 0.08)',
+            border: '1px solid rgba(255, 180, 0, 0.25)',
+            borderRadius: '12px',
+            padding: '12px 16px',
+            marginBottom: '20px',
+            maxWidth: '540px',
+            textAlign: 'left',
+          }}>
+            <span style={{ fontSize: '1.4rem', lineHeight: 1 }}>💸</span>
+            <div>
+              <strong style={{ color: '#f59e0b', fontSize: '0.85rem', display: 'block', marginBottom: '3px' }}>
+                Heads up — this might be slow!
+              </strong>
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.80rem', lineHeight: 1.5 }}>
+                I am extremely stingy and refuse to pay for API keys, so we're running on free-tier rate limits.
+                Responses may take a while. Grab a coffee ☕
+              </span>
+            </div>
+          </div>
           <div className="suggestion-chips">
             {SUGGESTIONS.map(s => (
               <button key={s} className="suggestion-chip" onClick={() => sendMessage(s)}>{s}</button>

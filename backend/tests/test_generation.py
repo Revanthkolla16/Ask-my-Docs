@@ -6,7 +6,7 @@ Unit tests for the Milestone 3 generation pipeline.
 Test groups
 -----------
 1. format_context          – prompt formatting utilities
-2. CitationGenerator._parse_llm_json  – JSON parsing (valid, fenced, missing keys)
+2. CitationGenerator._extract_json  – JSON extraction (valid, fenced, preamble, missing keys)
 3. CitationGenerator._validate_citations  – ghost-citation rejection
 4. CitationGenerator.generate  – mock Groq call, end-to-end happy path
 5. CitationGenerator.generate  – invalid chunk_id is rejected from response
@@ -24,7 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.generation.generator import CitationGenerator, GenerationResult
-from app.generation.prompts import format_context, build_messages, SYSTEM_PROMPT
+from app.generation.prompts import format_context, build_messages, build_retry_messages, SYSTEM_PROMPT
 from app.models.response import Citation
 from app.retrieval.dense import RetrievalResult
 
@@ -111,48 +111,54 @@ class TestBuildMessages:
         assert "chunk-A" in msgs[1]["content"]
 
 
-# ── 2. _parse_llm_json ─────────────────────────────────────────────────────────
+# ── 2. _extract_json ────────────────────────────────────────────────────────────
 
 class TestParseLlmJson:
-    """Verify JSON parsing of the raw LLM response."""
+    """Verify JSON extraction from raw LLM response text."""
 
     def setup_method(self):
         self.gen = CitationGenerator(api_key="test-key")
 
     def test_valid_json_parsed(self):
         raw = json.dumps({"answer": "hello", "citations": ["chunk-A"]})
-        data = self.gen._parse_llm_json(raw)
+        data = self.gen._extract_json(raw)
         assert data["answer"] == "hello"
         assert data["citations"] == ["chunk-A"]
 
     def test_markdown_fenced_json_stripped(self):
         raw = "```json\n{\"answer\": \"hi\", \"citations\": []}\n```"
-        data = self.gen._parse_llm_json(raw)
+        data = self.gen._extract_json(raw)
         assert data["answer"] == "hi"
 
     def test_plain_fenced_json_stripped(self):
         raw = "```\n{\"answer\": \"hi\", \"citations\": []}\n```"
-        data = self.gen._parse_llm_json(raw)
+        data = self.gen._extract_json(raw)
         assert data["answer"] == "hi"
+
+    def test_preamble_text_before_json(self):
+        """Model outputs reasoning text before the JSON object."""
+        raw = 'Here is my answer:\n{"answer": "ok", "citations": []}'
+        data = self.gen._extract_json(raw)
+        assert data["answer"] == "ok"
 
     def test_missing_answer_key_raises(self):
         raw = json.dumps({"citations": []})
         with pytest.raises(ValueError, match="missing 'answer'"):
-            self.gen._parse_llm_json(raw)
+            self.gen._extract_json(raw)
 
     def test_missing_citations_key_raises(self):
         raw = json.dumps({"answer": "ok"})
         with pytest.raises(ValueError, match="missing 'citations'"):
-            self.gen._parse_llm_json(raw)
+            self.gen._extract_json(raw)
 
     def test_invalid_json_raises(self):
         raw = "not json at all"
-        with pytest.raises(ValueError, match="not valid JSON"):
-            self.gen._parse_llm_json(raw)
+        with pytest.raises(ValueError):
+            self.gen._extract_json(raw)
 
     def test_empty_citations_list_accepted(self):
         raw = json.dumps({"answer": "ok", "citations": []})
-        data = self.gen._parse_llm_json(raw)
+        data = self.gen._extract_json(raw)
         assert data["citations"] == []
 
 
@@ -473,5 +479,3 @@ class TestQueryRoute:
         call_args = self.mock_retriever.retrieve.call_args
         # top_k=7 should have been forwarded to the retriever
         assert 7 in call_args.args or call_args.kwargs.get("top_k") == 7
-
-

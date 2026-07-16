@@ -8,5 +8,6 @@ Routers (included in app.main):
 """
 from .routes_ingest import router as ingest_router
 from .routes_query import router as query_router
+from .routes_eval import router as eval_router
 
-__all__ = ["ingest_router", "query_router"]
+__all__ = ["ingest_router", "query_router", "eval_router"]

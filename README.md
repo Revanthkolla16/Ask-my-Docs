@@ -14,74 +14,63 @@
 
 ---
 
-## Demo
-
-> Upload a document, ask a question, and get a citation-grounded answer with per-claim hallucination verification — all in one UI.
-
-https://github.com/user-attachments/assets/ask-my-docs-demo
-
-*Chat page with inline citations · Eval Dashboard with RAGAS metrics*
-
----
-
-
 ## Why This Project?
 
-Most RAG projects are a thin LLM wrapper over a vector store. **Ask My Docs** goes further — it's designed around the patterns enterprise AI teams actually build:
+Most RAG demos are a thin LLM wrapper over a vector store. **Ask My Docs** goes further — built around the patterns that production AI teams actually ship:
 
 - **Measurable retrieval quality** — ablation studies across chunking strategies and retrieval methods using RAGAS metrics.
-- **Citation enforcement** — every answer is traceable to source documents via structured LLM output.
-- **Hallucination safeguards** — automated claim-level verification against retrieved context.
-- **Regression-gated CI** — evaluation pipelines that block deployments when quality degrades.
+- **Citation enforcement** — every answer is traceable to source documents via structured LLM output with ghost-citation rejection.
+- **Hallucination safeguards** — automated claim-level verification using an NLI model cross-checking each sentence against its cited context.
+- **Regression-gated CI** — evaluation pipelines that block deployments when quality degrades beyond configurable thresholds.
 
 ---
 
 ## Features
 
 ### 🔍 Hybrid Retrieval Pipeline
-- **Dense retrieval** via sentence-transformer embeddings + ChromaDB
-- **Sparse retrieval** via BM25 keyword search
-- **Reciprocal Rank Fusion (RRF)** to combine both result sets
-- **Cross-encoder reranking** (`ms-marco-MiniLM`) for precision-focused final selection
+- **Dense retrieval** via sentence-transformer embeddings (`all-MiniLM-L6-v2`) + ChromaDB
+- **Sparse retrieval** via BM25 keyword search (`rank_bm25`)
+- **Reciprocal Rank Fusion (RRF)** to merge both result sets
+- **Cross-encoder reranking** (`ms-marco-MiniLM-L-6-v2`) for precision-focused final selection
 
 ### 📄 Multi-Strategy Ingestion
 - Supports **PDF**, **Markdown**, and **plain text** documents
 - Three chunking strategies (benchmarked via ablation):
-  - Fixed-size chunking (512 tokens, configurable overlap)
-  - Semantic chunking (topic-shift detection via embedding similarity)
-  - Sentence-window chunking (small chunks + surrounding context window)
-- Preserves page/section metadata for downstream citation
+  - **Fixed-size** — 512-token windows with configurable overlap
+  - **Semantic** — topic-shift detection via embedding cosine similarity
+  - **Sentence-window** — small sentence chunks + surrounding context window
+- Preserves page/section metadata for downstream citation mapping
 
 ### 📌 Citation-Grounded Generation
-- LLM returns structured JSON output with `answer` + `citations[]`
-- Each citation maps to a specific source document, page number, and chunk
-- Enforced via function calling / JSON schema constraints — not regex parsing
+- LLM returns structured JSON: `{ "answer": "...", "citations": ["chunk_id", ...] }`
+- Ghost-citation rejection: any `chunk_id` not present in the retrieved context is silently dropped before it reaches the client
+- Robust extraction: regex-based JSON parsing handles markdown fences, preamble text, and partial responses; falls back to a simplified retry prompt on failure
 
 ### 🛡️ Hallucination Detection
-- Post-generation claim-level verification using NLI model / LLM-as-judge
-- Each sentence in the answer is checked against its cited context
-- Unsupported claims are flagged with a visual warning in the UI
+- Post-generation, claim-level verification using `cross-encoder/nli-deberta-v3-base`
+- Each sentence in the answer is checked against its cited context window
+- Unsupported claims are flagged with a visual warning badge in the UI
+- Detection is opt-in per request (`detect_hallucinations` toggle in the chat UI)
 
 ### 📊 RAGAS Evaluation Framework
-- 100-sample golden Q&A benchmark with expected source chunks
+- 100-sample golden Q&A benchmark (Python 3.12 docs + 3 ArXiv ML papers)
 - Automated metrics: **Faithfulness**, **Answer Relevance**, **Context Precision**, **Context Recall**
-- Ablation experiments comparing:
-  - Chunking strategies (fixed vs semantic vs sentence-window)
-  - Retrieval strategies (dense-only vs BM25-only vs hybrid vs hybrid+rerank)
-- Historical tracking of metrics across pipeline versions
+- Ablation experiments comparing chunking strategies and retrieval configurations
+- Historical result tracking with JSON artifacts for baseline comparison
 
 ### 🚦 CI-Gated Quality Pipeline
-- GitHub Actions workflow on every push/PR
+- GitHub Actions workflow on every push / PR
 - Runs full RAGAS evaluation against the golden test set
-- Compares against last known-good baseline (JSON artifact)
-- **Fails the build** if any metric degrades beyond threshold (e.g. faithfulness Δ > 2%)
-- Posts metric diff table as a PR comment
+- Compares results against `evaluation/baselines/baseline.json`
+- **Fails the build** if any metric degrades beyond the configured threshold (default: Δ > 2%)
+- Posts a metric diff table as a PR comment
 
 ### 💬 React Chat UI
-- Document upload and corpus management
+- Document upload and corpus management sidebar
 - Chat interface with inline citation highlighting (hover for source details)
-- Confidence/hallucination warning indicators per answer
+- Per-answer confidence score and hallucination warning badges
 - **Eval Dashboard** tab with metric trend charts and ablation comparison tables
+- Skeleton loading states and auto-resizing textarea
 
 ---
 
@@ -104,10 +93,12 @@ flowchart TD
 
     F --> G["LLM Generation · Groq\nStructured JSON output\n{ answer, citations }"]
 
-    G --> H["Hallucination Detector\nNLI model — claim ↔ context"]
+    G --> H["Ghost Citation Rejection\nchunk_id validation"]
 
-    H --> I["FastAPI Response"]
-    I --> J["React Chat UI\nInline citations · Warning badges"]
+    H --> I["Hallucination Detector\nNLI model — claim ↔ context"]
+
+    I --> J["FastAPI Response"]
+    J --> K["React Chat UI\nInline citations · Warning badges"]
 
     style A fill:#1e293b,stroke:#38bdf8,color:#e2e8f0
     style Q fill:#1e293b,stroke:#38bdf8,color:#e2e8f0
@@ -118,8 +109,9 @@ flowchart TD
     style F fill:#0f172a,stroke:#06b6d4,color:#e2e8f0
     style G fill:#0f172a,stroke:#f59e0b,color:#e2e8f0
     style H fill:#0f172a,stroke:#ef4444,color:#e2e8f0
-    style I fill:#0f172a,stroke:#22c55e,color:#e2e8f0
-    style J fill:#1e293b,stroke:#22c55e,color:#e2e8f0
+    style I fill:#0f172a,stroke:#ef4444,color:#e2e8f0
+    style J fill:#0f172a,stroke:#22c55e,color:#e2e8f0
+    style K fill:#1e293b,stroke:#22c55e,color:#e2e8f0
 ```
 
 ---
@@ -130,45 +122,36 @@ flowchart TD
 ask-my-docs/
 ├── backend/
 │   ├── app/
-│   │   ├── __init__.py             # re-exports settings singleton
-│   │   ├── main.py                 # FastAPI application entry point
-│   │   ├── config.py               # Reads all config from .env (pydantic-settings)
+│   │   ├── main.py                 # FastAPI entry point with async model preloading
+│   │   ├── config.py               # All config from .env via pydantic-settings
 │   │   ├── models/
-│   │   │   ├── __init__.py         # re-exports all schema classes
 │   │   │   ├── request.py          # IngestRequest, QueryRequest
 │   │   │   └── response.py         # Citation, HallucinationFlag, QueryResponse, IngestResponse
 │   │   ├── ingestion/
-│   │   │   ├── __init__.py         # pipeline docstring: parse → chunk → index
 │   │   │   ├── parser.py           # PDF / Markdown / text parsing
-│   │   │   ├── chunker.py          # Chunking strategies
+│   │   │   ├── chunker.py          # Fixed, semantic, sentence-window chunking
 │   │   │   └── indexer.py          # Embedding + ChromaDB + BM25 indexing
 │   │   ├── retrieval/
-│   │   │   ├── __init__.py         # pipeline docstring: dense → sparse → hybrid → rerank
-│   │   │   ├── dense.py            # Dense (embedding) retriever
+│   │   │   ├── dense.py            # Embedding retriever (ChromaDB)
 │   │   │   ├── sparse.py           # BM25 retriever
-│   │   │   ├── hybrid.py           # RRF fusion logic
+│   │   │   ├── hybrid.py           # RRF fusion
 │   │   │   └── reranker.py         # Cross-encoder reranking
 │   │   ├── generation/
-│   │   │   ├── __init__.py         # pipeline docstring: prompts → generate → validate citations
-│   │   │   ├── generator.py        # LLM generation with structured output
-│   │   │   └── prompts.py          # Prompt templates
+│   │   │   ├── generator.py        # Groq LLM with JSON extraction + ghost-citation rejection
+│   │   │   └── prompts.py          # Primary and retry prompt templates
 │   │   ├── hallucination/
-│   │   │   ├── __init__.py         # pipeline docstring: split → NLI verify → flag
-│   │   │   └── detector.py         # Claim-level hallucination checks
+│   │   │   └── detector.py         # Claim-level NLI verification
 │   │   └── api/
-│   │       ├── __init__.py         # lists all routers and their endpoints
-│   │       ├── routes_query.py     # /query endpoint
-│   │       ├── routes_ingest.py    # /ingest endpoint
-│   │       └── routes_eval.py      # /eval endpoint
+│   │       ├── routes_query.py     # POST /query
+│   │       ├── routes_ingest.py    # POST /ingest
+│   │       └── routes_eval.py      # GET /eval/*
 │   ├── evaluation/
-│   │   ├── __init__.py             # lists evaluate / ablation / check_regression
 │   │   ├── golden_qa.json          # 100-sample benchmark dataset
 │   │   ├── evaluate.py             # RAGAS evaluation runner
 │   │   ├── ablation.py             # Ablation experiment runner
 │   │   └── baselines/
 │   │       └── baseline.json       # Last known-good metric scores
 │   ├── tests/
-│   │   ├── __init__.py             # lists what each test module covers
 │   │   ├── test_ingestion.py
 │   │   ├── test_retrieval.py
 │   │   ├── test_generation.py
@@ -179,7 +162,7 @@ ask-my-docs/
 │   ├── src/
 │   │   ├── App.jsx
 │   │   ├── components/
-│   │   │   ├── ChatInterface.jsx
+│   │   │   ├── ChatInterface.jsx    # Chat input, message list, suggestion chips
 │   │   │   ├── CitationHighlight.jsx
 │   │   │   ├── DocumentUpload.jsx
 │   │   │   ├── EvalDashboard.jsx
@@ -187,6 +170,7 @@ ask-my-docs/
 │   │   └── pages/
 │   │       ├── ChatPage.jsx
 │   │       └── EvalPage.jsx
+│   ├── nginx.conf
 │   ├── package.json
 │   └── Dockerfile
 ├── .github/
@@ -205,39 +189,43 @@ ask-my-docs/
 - Python 3.10+
 - Node.js 18+
 - Docker & Docker Compose (optional, for containerized setup)
-- [Groq API key](https://console.groq.com) (free tier, no credit card required)
+- [Groq API key](https://console.groq.com) — free tier, no credit card required
 
 ### Option 1: Docker Compose (Recommended)
 
 ```bash
-# Clone the repository
 git clone https://github.com/Revanthkolla16/Ask-my-Docs.git
-cd ask-my-docs
+cd Ask-my-Docs
 
-# Configure environment
 cp .env.example .env
-# Edit .env with your API keys
+# Open .env and paste your Groq API key next to LLM_API_KEY=
 
-# Start all services
-docker-compose up --build
+docker compose up --build
 ```
 
-The app will be available at:
-- **Frontend:** http://localhost:3000
-- **Backend API:** http://localhost:8000
-- **API Docs:** http://localhost:8000/docs
+> **Note:** The first run downloads ~1 GB of ML models (embedding + reranker + NLI). The `start_period` in Docker Compose is set to 20 minutes to accommodate this. Subsequent starts are fast.
+
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3000 |
+| Backend API | http://localhost:8000 |
+| API Docs (Swagger) | http://localhost:8000/docs |
 
 ### Option 2: Local Development
 
 ```bash
-# Backend
+# ── Backend ──────────────────────────────────────────────────────────────────
 cd backend
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS / Linux:
+source .venv/bin/activate
+
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 
-# Frontend (in a separate terminal)
+# ── Frontend (separate terminal) ─────────────────────────────────────────────
 cd frontend
 npm install
 npm run dev
@@ -251,31 +239,32 @@ curl -X POST http://localhost:8000/ingest \
   -F "files=@path/to/document.pdf" \
   -F "chunking_strategy=semantic"
 
-# Or use the Upload UI at http://localhost:3000
+# Or use the Upload panel in the sidebar at http://localhost:3000
 ```
 
 ### Ask a Question
 
 ```bash
-curl -X POST http://localhost:8000/query \
+curl -X POST http://localhost:8000/query/ \
   -H "Content-Type: application/json" \
-  -d '{"question": "What are the key findings in the Q3 report?"}'
+  -d '{"query": "What are the key findings in the Q3 report?", "detect_hallucinations": true}'
 ```
 
-Response:
+**Response:**
 ```json
 {
   "answer": "The Q3 report highlights three key findings...",
   "citations": [
     {
       "chunk_id": "doc1_chunk_14",
-      "document": "Q3_Report.pdf",
-      "page": 7,
-      "text_snippet": "Three primary findings emerged from..."
+      "source": "Q3_Report.pdf",
+      "page_num": 7,
+      "snippet": "Three primary findings emerged from..."
     }
   ],
   "hallucination_flags": [],
-  "confidence": 0.94
+  "confidence": 0.94,
+  "latency_ms": 1842.3
 }
 ```
 
@@ -287,16 +276,16 @@ Response:
 
 ```bash
 cd backend
-python -m evaluation.evaluate --config configs/default.yaml
+python -m evaluation.evaluate
 ```
 
 ### Run Ablation Studies
 
 ```bash
-# Compare chunking strategies
+# Compare chunking strategies (fixed vs semantic vs sentence-window)
 python -m evaluation.ablation --experiment chunking
 
-# Compare retrieval strategies
+# Compare retrieval strategies (dense-only vs BM25-only vs hybrid vs hybrid+rerank)
 python -m evaluation.ablation --experiment retrieval
 ```
 
@@ -308,9 +297,9 @@ Metrics measured on the 100-sample golden Q&A benchmark (Python 3.12 docs + 3 Ar
 |---|:---:|:---:|:---:|:---:|
 | Dense-only, fixed-512 | 0.68 | 0.65 | 0.61 | 0.58 |
 | Hybrid (RRF), fixed-512 | 0.72 | 0.68 | 0.71 | 0.66 |
-| Hybrid + Rerank, semantic | **0.72** | **0.68** | **0.71** | **0.66** |
+| **Hybrid + Rerank, semantic** | **0.72** | **0.68** | **0.71** | **0.66** |
 
-> Scores reflect the `llama-3.3-70b-versatile` model on the Groq free tier. Run `python -m evaluation.ablation --experiment retrieval` to reproduce.
+> Scores reflect `llama-3.3-70b-versatile` on the Groq free tier. Run `python -m evaluation.ablation --experiment retrieval` to reproduce.
 
 ### CI-Gated Pipeline
 
@@ -318,8 +307,45 @@ The GitHub Actions workflow (`.github/workflows/eval-ci.yml`) runs automatically
 
 1. Executes the full RAGAS evaluation suite against the 100-sample golden test set.
 2. Compares results against `evaluation/baselines/baseline.json`.
-3. **Fails the build** if any metric degrades beyond the configured threshold.
+3. **Fails the build** if any metric degrades beyond the configured threshold (default: Δ > 2%).
 4. Posts a metric diff table as a comment on the PR.
+
+---
+
+## Configuration
+
+All configuration is read from environment variables (`.env`). Copy `.env.example` and fill in your values:
+
+```bash
+# ── LLM ──────────────────────────────────────────────────────
+LLM_PROVIDER=groq
+LLM_API_KEY=                              # <-- paste your Groq key here
+LLM_MODEL=llama-3.3-70b-versatile
+
+# ── Embeddings & Reranking (downloaded automatically) ────────
+EMBEDDING_MODEL=all-MiniLM-L6-v2
+RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+NLI_MODEL=cross-encoder/nli-deberta-v3-base
+
+# ── Vector Store ─────────────────────────────────────────────
+CHROMA_PERSIST_DIR=./data/chroma
+
+# ── Chunking ─────────────────────────────────────────────────
+DEFAULT_CHUNKING=semantic                 # fixed | semantic | sentence_window
+CHUNK_SIZE=512
+CHUNK_OVERLAP=50
+
+# ── Retrieval ────────────────────────────────────────────────
+RETRIEVAL_TOP_K=20
+RERANK_TOP_N=5
+RRF_K=60
+
+# ── Hallucination Detection ──────────────────────────────────
+HALLUCINATION_THRESHOLD=0.7
+
+# ── Evaluation / CI ──────────────────────────────────────────
+EVAL_REGRESSION_THRESHOLD=0.02
+```
 
 ---
 
@@ -327,40 +353,17 @@ The GitHub Actions workflow (`.github/workflows/eval-ci.yml`) runs automatically
 
 | Layer | Technology |
 |---|---|
-| Backend / Orchestration | Python, LangChain |
+| Backend / Orchestration | Python, FastAPI, LangChain |
 | Vector Store | ChromaDB |
 | Sparse Retrieval | rank_bm25 |
-| Reranking | Cross-encoder (`ms-marco-MiniLM-L-6-v2`) |
+| Reranking | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+| Hallucination Detection | `cross-encoder/nli-deberta-v3-base` |
 | Embeddings | `all-MiniLM-L6-v2` (sentence-transformers) |
-| Evaluation | RAGAS |
 | LLM | Groq (`llama-3.3-70b-versatile`) |
-| API Layer | FastAPI |
-| Frontend | React (Vite) |
-| CI/CD | GitHub Actions |
+| Evaluation | RAGAS |
+| Frontend | React + Vite |
 | Containerization | Docker, Docker Compose |
-
----
-
-## Configuration
-
-All configuration is managed via environment variables (`.env`) and YAML config files:
-
-```bash
-# .env.example
-LLM_PROVIDER=groq
-LLM_API_KEY=your-groq-api-key-here
-LLM_MODEL=llama-3.3-70b-versatile
-EMBEDDING_MODEL=all-MiniLM-L6-v2
-RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
-CHROMA_PERSIST_DIR=./data/chroma
-DEFAULT_CHUNKING=semantic                # fixed | semantic | sentence_window
-CHUNK_SIZE=512
-CHUNK_OVERLAP=50
-RETRIEVAL_TOP_K=20
-RERANK_TOP_N=5
-HALLUCINATION_THRESHOLD=0.7
-EVAL_REGRESSION_THRESHOLD=0.02
-```
+| CI/CD | GitHub Actions |
 
 ---
 
@@ -368,12 +371,12 @@ EVAL_REGRESSION_THRESHOLD=0.02
 
 - [x] **M1:** Ingestion + indexing — parse documents, chunking strategies, dense + sparse indexes
 - [x] **M2:** Hybrid retrieval + reranking — RRF fusion, cross-encoder, retrieval quality verification
-- [x] **M3:** Citation-grounded generation — structured LLM output with citations, chat API E2E
-- [x] **M4:** Hallucination detection — claim-checking against retrieved context
-- [x] **M5:** Evaluation harness — golden Q&A set, RAGAS integration, ablation studies
-- [x] **M6:** CI-gated pipeline — GitHub Actions with regression gating
-- [x] **M7:** Frontend — chat UI with citation highlighting + eval dashboard
-- [x] **M8:** Polish — Docker Compose, README finalization, demo recording
+- [x] **M3:** Citation-grounded generation — structured LLM output, ghost-citation rejection, chat API E2E
+- [x] **M4:** Hallucination detection — claim-level NLI checking against retrieved context
+- [x] **M5:** Evaluation harness — golden Q&A dataset, RAGAS integration, ablation studies
+- [x] **M6:** CI-gated pipeline — GitHub Actions with regression gating and PR diff comments
+- [x] **M7:** Frontend — React chat UI with citation highlighting, hallucination badges, eval dashboard
+- [x] **M8:** Polish — Docker Compose, nginx, README, final commit
 
 ---
 
@@ -389,3 +392,4 @@ MIT
 - [LangChain](https://github.com/langchain-ai/langchain) — LLM orchestration
 - [ChromaDB](https://github.com/chroma-core/chroma) — vector store
 - [sentence-transformers](https://github.com/UKPLab/sentence-transformers) — embedding and reranking models
+- [Groq](https://groq.com) — fast LLM inference API

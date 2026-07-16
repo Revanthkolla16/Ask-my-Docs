@@ -6,11 +6,29 @@ by default).
 
 The generator:
   1. Formats context chunks into the prompt via ``build_messages``.
-  2. Calls the Groq chat-completion endpoint requesting JSON mode.
-  3. Parses the JSON response and validates that every cited chunk_id is
-     actually present in the supplied context (reject any ghost citations).
-  4. Converts valid citations to ``Citation`` Pydantic models and returns a
+  2. Calls the Groq chat-completion endpoint in **plain-text mode** (no
+     ``response_format`` constraint) to avoid Groq's json_object validator
+     raising a 400 when the model produces an empty or truncated response.
+  3. Extracts the JSON block from the raw text using a regex extractor that
+     handles markdown fences and bare JSON objects.
+  4. If parsing fails, retries once with a simpler prompt via
+     ``build_retry_messages``.
+  5. Validates that every cited chunk_id is actually present in the supplied
+     context (reject any ghost citations).
+  6. Converts valid citations to ``Citation`` Pydantic models and returns a
      ``GenerationResult`` with latency.
+
+Why plain-text mode instead of json_object mode?
+-------------------------------------------------
+Groq's ``response_format={"type": "json_object"}`` requires the model to emit
+a *perfectly valid* JSON object as its first token stream.  When the context is
+large or the model starts its response with a reasoning preamble (e.g.
+"Let me analyse…"), Groq's validator fires immediately and returns:
+
+    400 json_validate_failed  failed_generation: ''
+
+Using plain-text mode and extracting JSON afterwards is more robust and
+produces identical downstream behaviour.
 
 Classes
 -------
@@ -24,15 +42,21 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import List
 
-from app.generation.prompts import build_messages
+from app.generation.prompts import build_messages, build_retry_messages
 from app.models.response import Citation
 from app.retrieval.dense import RetrievalResult
 
 logger = logging.getLogger(__name__)
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+_DEFAULT_MAX_TOKENS = 2048   # raised from 1024 to prevent mid-JSON truncation
+_MAX_RETRIES = 1             # one retry with the simplified prompt
 
 
 # ── Result dataclass ──────────────────────────────────────────────────────────
@@ -87,7 +111,7 @@ class CitationGenerator:
         api_key: str,
         model: str = "llama-3.3-70b-versatile",
         temperature: float = 0.0,
-        max_tokens: int = 1024,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
     ) -> None:
         self.api_key = api_key
         self.model = model
@@ -111,32 +135,50 @@ class CitationGenerator:
         return {c.chunk_id: c for c in chunks}
 
     @staticmethod
-    def _parse_llm_json(content: str) -> dict:
+    def _extract_json(content: str) -> dict:
         """
-        Parse the LLM response as JSON, stripping markdown fences if present.
+        Extract the first JSON object from *content*, handling:
+          - Bare JSON objects  ``{ ... }``
+          - Markdown fences    ```json\\n{ ... }\\n```
+          - Preamble text      "Here is my answer:\\n{ ... }"
 
         Raises
         ------
         ValueError
-            If the content cannot be parsed as JSON or is missing required keys.
+            If no valid JSON object is found or required keys are missing.
         """
-        # Strip common markdown code fences the model might add
         text = content.strip()
-        if text.startswith("```"):
-            lines = text.splitlines()
-            # Remove opening and closing fence lines
-            inner = [l for l in lines if not l.startswith("```")]
-            text = "\n".join(inner).strip()
+
+        # 1. Try stripping markdown fences
+        fence_match = re.search(
+            r"```(?:json)?\s*(\{.*?\})\s*```",
+            text,
+            re.DOTALL,
+        )
+        if fence_match:
+            text = fence_match.group(1)
+
+        # 2. Try extracting the first {...} block (handles preamble text)
+        if not text.startswith("{"):
+            brace_match = re.search(r"\{.*\}", text, re.DOTALL)
+            if brace_match:
+                text = brace_match.group(0)
 
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"LLM response is not valid JSON: {exc}\nRaw:\n{content}") from exc
+            raise ValueError(
+                f"LLM response contains no valid JSON: {exc}\nRaw content:\n{content[:500]}"
+            ) from exc
 
         if "answer" not in data:
-            raise ValueError(f"LLM JSON missing 'answer' key. Got keys: {list(data.keys())}")
+            raise ValueError(
+                f"LLM JSON missing 'answer' key. Got keys: {list(data.keys())}"
+            )
         if "citations" not in data:
-            raise ValueError(f"LLM JSON missing 'citations' key. Got keys: {list(data.keys())}")
+            raise ValueError(
+                f"LLM JSON missing 'citations' key. Got keys: {list(data.keys())}"
+            )
 
         return data
 
@@ -197,6 +239,28 @@ class CitationGenerator:
 
         return citations
 
+    def _call_groq(self, messages: list) -> str:
+        """
+        Make a single Groq chat completion call in plain-text mode.
+
+        Returns the raw content string. Raises on API error.
+
+        Plain-text mode is used deliberately (no ``response_format`` arg)
+        because Groq's ``json_object`` mode raises a 400 with
+        ``failed_generation: ''`` whenever the model starts with a preamble
+        or produces an empty response — which happens frequently with
+        large context windows.
+        """
+        client = self._get_client()
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            # NOTE: response_format intentionally omitted — see module docstring
+        )
+        return response.choices[0].message.content or ""
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def generate(
@@ -209,10 +273,11 @@ class CitationGenerator:
 
         Steps:
           1. Format chunks into the prompt.
-          2. Call Groq with JSON mode enabled.
-          3. Parse and validate the JSON response.
-          4. Reject any cited chunk_id not in the provided context.
-          5. Return a ``GenerationResult`` with latency.
+          2. Call Groq in plain-text mode (no json_object enforcement).
+          3. Extract the JSON block from the raw response.
+          4. If parsing fails, retry once with the simplified prompt.
+          5. Reject any cited chunk_id not in our context.
+          6. Return a ``GenerationResult`` with latency.
 
         Parameters
         ----------
@@ -226,9 +291,7 @@ class CitationGenerator:
         -------
         GenerationResult
         """
-        client = self._get_client()
         context_index = self._build_context_index(context_chunks)
-        messages = build_messages(query, context_chunks)
 
         logger.info(
             "CitationGenerator: calling Groq model='%s' with %d context chunks …",
@@ -237,35 +300,74 @@ class CitationGenerator:
         )
 
         t0 = time.perf_counter()
-        try:
-            response = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                response_format={"type": "json_object"},
+
+        # ── Attempt 1: primary prompt ──────────────────────────────────────────
+        raw_content = ""
+        data: dict | None = None
+        last_exc: Exception | None = None
+
+        for attempt, messages in enumerate(
+            [
+                build_messages(query, context_chunks),
+                build_retry_messages(query, context_chunks),
+            ],
+            start=1,
+        ):
+            if attempt > 1:
+                logger.warning(
+                    "CitationGenerator: attempt %d/%d — using simplified retry prompt.",
+                    attempt,
+                    _MAX_RETRIES + 1,
+                )
+
+            try:
+                raw_content = self._call_groq(messages)
+            except Exception as exc:
+                logger.error("Groq API call failed (attempt %d): %s", attempt, exc)
+                last_exc = exc
+                if attempt > _MAX_RETRIES:
+                    raise
+                continue
+
+            logger.debug(
+                "Groq raw response attempt %d (%d chars): %.300s…",
+                attempt,
+                len(raw_content),
+                raw_content,
             )
-        except Exception as exc:
-            logger.error("Groq API call failed: %s", exc)
-            raise
+
+            try:
+                data = self._extract_json(raw_content)
+                break  # success — stop retrying
+            except ValueError as exc:
+                logger.warning(
+                    "JSON extraction failed (attempt %d): %s",
+                    attempt,
+                    exc,
+                )
+                last_exc = exc
+                if attempt > _MAX_RETRIES:
+                    # Exhausted retries — return graceful degradation
+                    logger.error(
+                        "All %d generation attempts failed — returning fallback answer.",
+                        _MAX_RETRIES + 1,
+                    )
+                    latency_ms = (time.perf_counter() - t0) * 1000.0
+                    return GenerationResult(
+                        answer=(
+                            "I was unable to generate a structured response. "
+                            "Please try rephrasing your question."
+                        ),
+                        citations=[],
+                        latency_ms=latency_ms,
+                        raw_chunk_ids=[],
+                    )
 
         latency_ms = (time.perf_counter() - t0) * 1000.0
 
-        raw_content = response.choices[0].message.content or ""
-        logger.debug("Groq raw response (%d chars): %.200s…", len(raw_content), raw_content)
-
-        # Parse JSON
-        try:
-            data = self._parse_llm_json(raw_content)
-        except ValueError as exc:
-            logger.error("Failed to parse LLM JSON response: %s", exc)
-            # Return a graceful degradation rather than 500-ing the whole request
-            return GenerationResult(
-                answer="I was unable to generate a structured response. Please try again.",
-                citations=[],
-                latency_ms=latency_ms,
-                raw_chunk_ids=[],
-            )
+        if data is None:
+            # Defensive — should not reach here, but satisfy type checker
+            raise RuntimeError("Generation loop exited without data or exception") from last_exc
 
         answer: str = data.get("answer", "")
         raw_ids: List[str] = data.get("citations", [])

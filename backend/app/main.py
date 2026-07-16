@@ -5,11 +5,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 
 
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup → yield → shutdown."""
-    # Startup: preload heavy models / connections here in later milestones
     print("Ask My Docs API starting up…")
+
+    # Kick off model preloading in the background — doesn't block /health
+    async def preload_models():
+        loop = asyncio.get_running_loop()
+        def _load():
+            from app.api.routes_query import _hybrid_retriever, _reranker, _detector
+            print("Preloading ML models in background…")
+            _hybrid_retriever._dense._get_model()
+            _reranker._get_model()
+            _detector._get_model()
+            print("ML models ready!")
+        await loop.run_in_executor(None, _load)
+
+    asyncio.create_task(preload_models())
+
     yield
     # Shutdown cleanup
     print("Ask My Docs API shutting down…")
@@ -32,12 +48,11 @@ app.add_middleware(
 )
 
 # ── Routers ────────────────────────────────────────────────────────────────────
-from app.api import ingest_router, query_router
-# from app.api import eval_router     # Milestone 5
+from app.api import ingest_router, query_router, eval_router
 
 app.include_router(ingest_router, prefix="/ingest", tags=["Ingestion"])
 app.include_router(query_router, prefix="/query", tags=["Query"])
-# app.include_router(eval_router, prefix="/eval", tags=["Evaluation"])
+app.include_router(eval_router, prefix="/eval", tags=["Evaluation"])
 
 
 @app.get("/health", tags=["Health"])
